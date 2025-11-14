@@ -49,8 +49,8 @@ pip install -r requirements.txt
 
 #### Or install manually:
 ```bash
-pip install Flask==3.0.0
-pip install chess==1.10.0
+pip install Flask==3.1.2
+pip install chess==1.11.2
 ```
 
 #### Using Conda:
