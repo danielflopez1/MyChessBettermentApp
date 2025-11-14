@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Play Chess vs Stockfish (Python)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <link href="{{ url_for('static', filename='css/bootstrap.min.css') }}" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/chessboard-1.0.0.min.css') }}"/>
+
+    <style>
+      body { padding-top: 20px; }
+      #board {
+        width: 520px;
+        max-width: 100%;
+        aspect-ratio: 1 / 1;
+        margin: 0;
+      }
+      .cp-loss-brilliant { color: #0d6efd; font-weight: 600; }
+      .cp-loss-best { color: #198754; }
+      .cp-loss-excellent { color: #198754; }
+      .cp-loss-good { color: #0dcaf0; }
+      .cp-loss-inaccuracy { color: #ffc107; }
+      .cp-loss-mistake { color: #fd7e14; }
+      .cp-loss-blunder { color: #dc3545; font-weight: 600; }
+      .square-highlight { box-shadow: inset 0 0 3px 3px rgba(0,0,0,0.15); }
+      .square-legal { background: radial-gradient(circle, rgba(0,0,0,0.15) 15%, transparent 16%) center/40% 40% no-repeat; }
+      .square-legal.capture { background: radial-gradient(circle, rgba(220,53,69,0.3) 15%, transparent 16%) center/40% 40% no-repeat; }
+
+      /* Hint highlighting */
+      .hint-from { box-shadow: inset 0 0 10px 5px rgba(13, 202, 240, 0.6) !important; }
+      .hint-to { box-shadow: inset 0 0 10px 5px rgba(25, 135, 84, 0.6) !important; }
+    </style>
+
+    {% block head_extra %}{% endblock %}
+  </head>
+  <body>
+    <div class="container">
+      <h1 class="mb-3">Play Chess vs Stockfish (Python)</h1>
+      {% block content %}{% endblock %}
+    </div>
+
+    <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/jquery-3.7.1.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/chessboard-1.0.0.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/chess.min.js') }}"></script>
+
+    {% block scripts %}{% endblock %}
+  </body>
+</html>

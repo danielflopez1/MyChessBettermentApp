@@ -1,0 +1,237 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row">
+  <div class="col-lg-5">
+    <div class="d-flex gap-2 mb-3 align-items-center">
+      <button id="new-white" class="btn btn-primary btn-sm">New Game (You = White)</button>
+      <button id="new-black" class="btn btn-outline-primary btn-sm">New Game (You = Black)</button>
+      <button id="undo" class="btn btn-outline-secondary btn-sm">Undo</button>
+      <button id="hint" class="btn btn-outline-info btn-sm">💡 Help</button>
+      <a href="{{ url_for('home') }}" class="small ms-auto">Back to Menu</a>
+    </div>
+
+    <div id="board"></div>
+
+    <div class="mt-3">
+      <div><strong>Your side:</strong> <span id="side-label">{{ player_color|capitalize }}</span></div>
+      <div class="mt-2"><strong>Last move quality:</strong> <span id="quality-label">—</span></div>
+      <div id="notes" class="mt-2 small text-muted"></div>
+    </div>
+  </div>
+
+  <div class="col-lg-7">
+    <div class="alert alert-info">
+      Drag pieces to play against the engine. You'll get a grade after each move and see Stockfish's reply.
+    </div>
+    <ul class="small">
+      <li><strong>Click or hover</strong> a piece to see legal moves (circles).</li>
+      <li>Auto-promotes to a queen on the last rank (simple demo; we can add a picker).</li>
+      <li>Use the buttons to switch color or undo the last turn.</li>
+      <li><strong>Click 💡 Help</strong> to see the best move highlighted.</li>
+    </ul>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+
+<script>
+  // Initial state
+  let playerColor = "{{ player_color }}";
+  let game = new Chess('{{ fen }}');
+  const sideLabel = document.getElementById('side-label');
+  const qualityLabel = document.getElementById('quality-label');
+  const notesDiv = document.getElementById('notes');
+
+  // Convert square index (0-63) to algebraic notation (a1-h8)
+  function squareIndexToName(index) {
+    const files = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+    const file = files[index % 8];
+    const rank = Math.floor(index / 8) + 1;
+    return file + rank;
+  }
+
+  function setQuality(classification, cpLoss, bestMove, sanPlayed) {
+    if (!classification) {
+      qualityLabel.textContent = '—';
+      qualityLabel.className = '';
+      return;
+    }
+    const cls = 'cp-loss-' + classification.toLowerCase();
+    qualityLabel.className = cls;
+    qualityLabel.textContent = `${classification} (${cpLoss} cp)`;
+    const bm = bestMove ? `, best was <code>${bestMove}</code>` : '';
+    notesDiv.innerHTML = `<div><strong>Your move:</strong> <code>${sanPlayed || '?'}</code>${bm}</div>`;
+  }
+
+  async function postJSON(url, data) {
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data || {})
+    });
+    const j = await r.json();
+    if (!r.ok || !j.ok) throw new Error(j.error || ('HTTP ' + r.status));
+    return j;
+  }
+
+  async function newGame(color) {
+    const j = await postJSON('/api/new', { color });
+    playerColor = j.player_color;
+    sideLabel.textContent = playerColor.charAt(0).toUpperCase() + playerColor.slice(1);
+    game.load(j.fen);
+    board.orientation(playerColor);
+    board.position(game.fen());
+    setQuality(null);
+    notesDiv.textContent = '';
+    board.resize();
+  }
+
+  async function sendMove(uci) {
+    const j = await postJSON('/api/move', { uci });
+    game.load(j.fen);
+    board.position(game.fen());
+    setQuality(j.classification, j.cp_loss, j.best_move, j.player_move);
+    if (j.engine_move) {
+      notesDiv.innerHTML += `<div><strong>Engine:</strong> <code>${j.engine_move}</code></div>`;
+    }
+    if (j.game_over) {
+      notesDiv.innerHTML += `<div class="mt-2"><strong>Game over:</strong> ${j.result}</div>`;
+    }
+  }
+
+  async function undo() {
+    try {
+      const j = await postJSON('/api/undo', {});
+      game.load(j.fen);
+      board.position(game.fen());
+      setQuality(null);
+      notesDiv.innerHTML = '<em>Undid last turn.</em>';
+      board.resize();
+    } catch (e) {
+      notesDiv.innerHTML = '<span class="text-danger">Nothing to undo.</span>';
+    }
+  }
+
+  async function getHint() {
+    try {
+      const j = await postJSON('/api/hint', {});
+
+      // Clear any previous highlights
+      removeHighlights();
+      $('#board .square-55d63').removeClass('hint-from hint-to');
+
+      // Convert square indices to algebraic notation
+      const fromSquare = squareIndexToName(j.from_square);
+      const toSquare = squareIndexToName(j.to_square);
+
+      // Highlight the best move
+      $('#board .square-' + fromSquare).addClass('hint-from');
+      $('#board .square-' + toSquare).addClass('hint-to');
+
+      // Show the hint text
+      const evalText = j.eval_cp !== null ? ` (eval: ${j.eval_cp > 0 ? '+' : ''}${j.eval_cp})` : '';
+      notesDiv.innerHTML = `<div class="alert alert-info">💡 <strong>Hint:</strong> Best move is <code>${j.best_move_san}</code>${evalText}</div>`;
+
+      // Clear the highlight after 10 seconds
+      setTimeout(() => {
+        $('#board .square-55d63').removeClass('hint-from hint-to');
+      }, 10000);
+
+    } catch (e) {
+      notesDiv.innerHTML = `<div class="alert alert-warning">Cannot show hint: ${e.message}</div>`;
+    }
+  }
+
+  function maybePromoteUci(from, to) {
+    const piece = game.get(from);
+    if (!piece || piece.type !== 'p') return from + to;
+    const lastRank = (playerColor === 'white') ? '8' : '1';
+    if (to[1] === lastRank) return from + to + 'q';
+    return from + to;
+  }
+
+  // Square highlighting
+  function removeHighlights() {
+    $('#board .square-55d63').removeClass('square-highlight square-legal capture');
+  }
+  function highlightSquare(square, isCapture) {
+    const el = $('#board .square-' + square);
+    el.addClass('square-legal');
+    if (isCapture) el.addClass('capture');
+  }
+  function highlightSource(square) {
+    $('#board .square-' + square).addClass('square-highlight');
+  }
+
+  let board = null;
+
+  function onDragStart(source, piece, position, orientation) {
+    if (game.game_over()) return false;
+    if ((playerColor === 'white' && piece.startsWith('b')) ||
+        (playerColor === 'black' && piece.startsWith('w'))) return false;
+
+    const turn = game.turn();
+    if ((playerColor === 'white' && turn !== 'w') ||
+        (playerColor === 'black' && turn !== 'b')) return false;
+
+    removeHighlights();
+    highlightSource(source);
+    const moves = game.moves({ square: source, verbose: true });
+    moves.forEach(m => highlightSquare(m.to, !!m.captured));
+  }
+
+  function onDrop(source, target) {
+    removeHighlights();
+    const move = game.move({ from: source, to: target, promotion: 'q' });
+    if (move === null) return 'snapback';
+
+    const uci = maybePromoteUci(source, target);
+    sendMove(uci).catch(() => {
+      game.undo();
+      board.position(game.fen());
+    });
+  }
+
+  function onMouseoverSquare(square, piece) {
+    if (game.game_over()) return;
+
+    const pieceObj = game.get(square);
+    if (!pieceObj) return;
+    if ((playerColor === 'white' && pieceObj.color !== 'w') ||
+        (playerColor === 'black' && pieceObj.color !== 'b')) return;
+
+    removeHighlights();
+    highlightSource(square);
+    const moves = game.moves({ square, verbose: true });
+    moves.forEach(m => highlightSquare(m.to, !!m.captured));
+  }
+
+  function onMouseoutSquare(square, piece) { removeHighlights(); }
+
+  function initBoard() {
+    board = Chessboard('board', {
+      position: game.fen(),
+      orientation: playerColor,
+      draggable: true,
+      pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png',
+      onDragStart: onDragStart,
+      onDrop: onDrop,
+      onMouseoverSquare: onMouseoverSquare,
+      onMouseoutSquare: onMouseoutSquare
+    });
+
+    setTimeout(() => board.resize(), 0);
+    $(window).on('resize', () => board && board.resize());
+  }
+
+  document.getElementById('new-white').addEventListener('click', () => newGame('white'));
+  document.getElementById('new-black').addEventListener('click', () => newGame('black'));
+  document.getElementById('undo').addEventListener('click', () => undo());
+  document.getElementById('hint').addEventListener('click', () => getHint());
+
+  document.addEventListener('DOMContentLoaded', initBoard);
+</script>
+{% endblock %}

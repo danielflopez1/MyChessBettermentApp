@@ -1,0 +1,199 @@
+{% extends "base.html" %}
+
+{% block head_extra %}
+  <script src="{{ url_for('static', filename='js/chart.min.js') }}"></script>
+  <style>
+    .eval-chart-container {
+      position: relative;
+      height: 250px;
+      width: 100%;
+    }
+  </style>
+{% endblock %}
+
+{% block content %}
+  <div class="mb-3">
+    <a href="{{ url_for('home') }}" class="btn btn-outline-primary btn-sm">&laquo; Back to Analyzer</a>
+  </div>
+
+  <div class="row">
+    <div class="col-md-4 mb-4">
+      <h5>Game info</h5>
+      <p><strong>{{ game_info.white }}</strong> vs <strong>{{ game_info.black }}</strong></p>
+      <p>{{ game_info.event }} {{ game_info.site }}</p>
+      <p>{{ game_info.date }} · {{ game_info.result }}</p>
+
+      <div id="board" style="max-width: 400px;"></div>
+      <div class="mt-3 d-flex justify-content-between align-items-center">
+        <button id="prev-btn" class="btn btn-outline-secondary btn-sm">&laquo; Previous</button>
+        <span id="move-indicator" class="small text-muted"></span>
+        <button id="next-btn" class="btn btn-outline-secondary btn-sm">Next &raquo;</button>
+      </div>
+    </div>
+
+    <div class="col-md-8">
+      <h5>Evaluation graph</h5>
+      <div class="eval-chart-container mb-4">
+        <canvas id="evalChart"></canvas>
+      </div>
+
+      <h5>Moves</h5>
+      <div class="table-responsive" style="max-height: 600px; overflow-y: auto;">
+        <table class="table table-sm table-striped align-middle">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Side</th>
+              <th>Move</th>
+              <th>Best move</th>
+              <th>Best eval (cp)</th>
+              <th>Eval after move (cp)</th>
+              <th>Loss (cp)</th>
+              <th>Classification</th>
+            </tr>
+          </thead>
+          <tbody>
+          {% for m in moves %}
+            {% set cls = "cp-loss-" + m.classification.lower() %}
+            <tr>
+              <td>{{ m.move_number }}{{ "." if m.side == "White" else "..." }}</td>
+              <td>{{ m.side }}</td>
+              <td><code>{{ m.san }}</code></td>
+              <td><code>{{ m.best_san }}</code></td>
+              <td>{{ m.best_score }}</td>
+              <td>{{ m.after_score }}</td>
+              <td class="{{ cls }}"><b>{{ m.cp_loss }}</b></td>
+              <td class="{{ cls }}"><b>{{ m.classification }}</b></td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+{% endblock %}
+
+{% block scripts %}
+  {{ super() }}
+
+  <script>
+    const fenList = {{ fens | tojson }};
+    const evalData = {{ evals | tojson }};
+    const moveLabels = {{ move_labels | tojson }};
+
+    let currentIndex = 0;
+    let board = null;
+
+    function cpToPawns(cp) {
+      if (cp > 90000) return 100; // Cap mate
+      if (cp < -90000) return -100; // Cap mate
+      return cp / 100.0;
+    }
+
+    function initBoard() {
+      board = Chessboard('board', {
+        position: fenList[0],
+        pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
+      });
+      $(window).on('resize', () => board && board.resize());
+      updateMoveIndicator();
+    }
+
+    function updateBoard() {
+      board.position(fenList[currentIndex]);
+      updateMoveIndicator();
+    }
+
+    function updateMoveIndicator() {
+      const indicator = document.getElementById('move-indicator');
+      if (!indicator) return;
+      if (currentIndex === 0) {
+        indicator.textContent = 'Start position';
+      } else {
+        indicator.textContent = moveLabels[currentIndex - 1] || '';
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+      initBoard();
+
+      document.getElementById('prev-btn').addEventListener('click', function() {
+        if (currentIndex > 0) {
+          currentIndex -= 1;
+          updateBoard();
+        }
+      });
+
+      document.getElementById('next-btn').addEventListener('click', function() {
+        if (currentIndex < fenList.length - 1) {
+          currentIndex += 1;
+          updateBoard();
+        }
+      });
+
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowLeft') {
+          document.getElementById('prev-btn').click();
+        } else if (e.key === 'ArrowRight') {
+          document.getElementById('next-btn').click();
+        }
+      });
+
+      const ctx = document.getElementById('evalChart').getContext('2d');
+      new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: ['Start', ...moveLabels],
+          datasets: [{
+            label: 'Evaluation (pawns, + = White better)',
+            data: evalData.map(cpToPawns),
+            fill: {
+              target: 'origin',
+              above: 'rgba(255, 255, 255, 0.2)',
+              below: 'rgba(0, 0, 0, 0.2)'
+            },
+            borderColor: '#0d6efd',
+            tension: 0.1
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            y: {
+              beginAtZero: false,
+              suggestedMin: -5,
+              suggestedMax: 5,
+              ticks: {
+                callback: function(value) {
+                  return (value > 0 ? '+' : '') + value;
+                }
+              }
+            },
+            x: {
+              ticks: {
+                display: false
+              }
+            }
+          },
+          plugins: {
+            legend: {
+              display: false
+            },
+            tooltip: {
+              intersect: false,
+              mode: 'index',
+            }
+          },
+          onClick: (e, elements, chart) => {
+            if (elements.length > 0) {
+              const dataIndex = elements[0].index;
+              currentIndex = dataIndex;
+              updateBoard();
+            }
+          }
+        }
+      });
+    });
+  </script>
+{% endblock %}
