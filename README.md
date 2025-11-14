@@ -21,11 +21,7 @@ A Flask-based chess application that lets you play against Stockfish engine with
 
 ### Option 1: Use Setup Script (Recommended)
 ```bash
-# 1. Extract the ZIP file to a folder
-
-# 2. Open terminal/command prompt in that folder
-
-# 3. Run the setup script
+# 1. Run the setup script
 python setup.py
 ```
 
