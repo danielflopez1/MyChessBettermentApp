@@ -4,6 +4,7 @@ import chess
 import chess.pgn
 import chess.engine
 from flask import Flask, render_template, request, session, jsonify, redirect, url_for
+from openings_data import OPENINGS_DATABASE
 
 # -------------------------
 # Hardcoded configuration
@@ -446,6 +447,112 @@ def api_hint():
         "eval_cp": eval_cp
     })
 
+
+# -------------------------
+# Opening Trainer Routes
+# -------------------------
+
+@app.route("/openings", methods=["GET"])
+def openings_list():
+    """
+    Show list of available openings to practice.
+    """
+    return render_template("openings.html", openings=OPENINGS_DATABASE)
+
+
+@app.route("/openings/<opening_id>", methods=["GET"])
+def opening_trainer(opening_id):
+    """
+    Practice a specific opening.
+    """
+    if opening_id not in OPENINGS_DATABASE:
+        return "Opening not found", 404
+
+    opening = OPENINGS_DATABASE[opening_id]
+    # Use the first line for now (can be extended for multiple variations)
+    line = opening["lines"][0]
+
+    return render_template(
+        "opening_trainer.html",
+        opening_id=opening_id,
+        opening=opening,
+        line=line
+    )
+
+
+# -------------------------
+# Opening Trainer API
+# -------------------------
+
+@app.route("/api/openings/<opening_id>/check", methods=["POST"])
+def check_opening_move(opening_id):
+    """
+    Check if the player's move matches the opening line.
+    """
+    if opening_id not in OPENINGS_DATABASE:
+        return jsonify({"ok": False, "error": "Opening not found"}), 404
+
+    data = request.json or {}
+    move_san = data.get("move_san", "")
+    move_index = data.get("move_index", 0)
+
+    opening = OPENINGS_DATABASE[opening_id]
+    line = opening["lines"][0]  # Using first line
+
+    if move_index >= len(line["moves"]):
+        return jsonify({
+            "ok": True,
+            "correct": True,
+            "completed": True,
+            "message": "Congratulations! You've completed this opening!"
+        })
+
+    expected_move = line["moves"][move_index]
+    is_correct = move_san == expected_move["san"]
+
+    response = {
+        "ok": True,
+        "correct": is_correct,
+        "expected_move": expected_move["san"],
+        "comment": expected_move.get("comment", ""),
+        "completed": False
+    }
+
+    if not is_correct:
+        response["message"] = f"Not quite! The correct move is {expected_move['san']}"
+
+    return jsonify(response)
+
+
+@app.route("/api/openings/<opening_id>/next-move", methods=["POST"])
+def get_next_opening_move(opening_id):
+    """
+    Get the next move in the opening (for computer moves).
+    """
+    if opening_id not in OPENINGS_DATABASE:
+        return jsonify({"ok": False, "error": "Opening not found"}), 404
+
+    data = request.json or {}
+    move_index = data.get("move_index", 0)
+
+    opening = OPENINGS_DATABASE[opening_id]
+    line = opening["lines"][0]
+
+    if move_index >= len(line["moves"]):
+        return jsonify({
+            "ok": True,
+            "completed": True
+        })
+
+    next_move = line["moves"][move_index]
+
+    return jsonify({
+        "ok": True,
+        "move": next_move["move"],
+        "san": next_move["san"],
+        "comment": next_move.get("comment", ""),
+        "completed": False
+    })
 
 if __name__ == "__main__":
     app.run(debug=True, threaded=True)  # Threaded for concurrent requests

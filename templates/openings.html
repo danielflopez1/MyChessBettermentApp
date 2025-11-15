@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <div class="mb-3">
+    <a href="{{ url_for('home') }}" class="btn btn-outline-primary btn-sm">&laquo; Back to Home</a>
+  </div>
+
+  <div class="alert alert-info">
+    <h5>🎓 Opening Trainer</h5>
+    <p class="mb-0">Practice popular chess openings and memorize key moves. Select an opening below to begin training!</p>
+  </div>
+
+  <div class="row">
+    {% for id, opening in openings.items() %}
+    <div class="col-md-6 col-lg-4 mb-4">
+      <div class="card h-100">
+        <div class="card-body">
+          <h5 class="card-title">
+            {{ opening.name }}
+            <small class="text-muted">({{ opening.eco }})</small>
+          </h5>
+          <p class="card-text">
+            <span class="badge bg-{{ 'primary' if opening.side == 'white' else 'secondary' }} mb-2">
+              Play as {{ opening.side|capitalize }}
+            </span>
+            <br>
+            {{ opening.description }}
+          </p>
+          <p class="small text-muted mb-2">
+            <strong>Lines:</strong> {{ opening.lines|length }} variation(s)
+          </p>
+        </div>
+        <div class="card-footer bg-transparent">
+          <a href="{{ url_for('opening_trainer', opening_id=id) }}" class="btn btn-primary btn-sm w-100">
+            Practice this opening
+          </a>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <div class="mt-4">
+    <h5>How to use the Opening Trainer:</h5>
+    <ol>
+      <li>Select an opening you want to learn</li>
+      <li>Follow the moves - you'll play your side, and the computer plays the opponent</li>
+      <li>If you make a mistake, you'll be shown the correct move</li>
+      <li>Practice until you can play the entire line from memory!</li>
+    </ol>
+  </div>
+{% endblock %}

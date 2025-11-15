@@ -4,6 +4,7 @@
   <div class="mb-3">
     <a href="{{ url_for('review_sample') }}" class="btn btn-success btn-sm">Review sample game</a>
     <a href="{{ url_for('play') }}" class="btn btn-primary btn-sm">Play vs AI</a>
+    <a href="{{ url_for('openings_list') }}" class="btn btn-info btn-sm">🎓 Learn Openings</a>
   </div>
 
   <form method="post" action="{{ url_for('analyze') }}" enctype="multipart/form-data">

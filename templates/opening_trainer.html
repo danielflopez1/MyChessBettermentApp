@@ -1,0 +1,280 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-3 d-flex justify-content-between align-items-center">
+  <div>
+    <a href="{{ url_for('openings_list') }}" class="btn btn-outline-primary btn-sm">&laquo; Back to Openings</a>
+  </div>
+  <h4 class="mb-0">{{ opening.name }} <small class="text-muted">({{ opening.eco }})</small></h4>
+  <button id="restart-btn" class="btn btn-success btn-sm">🔄 Restart</button>
+</div>
+
+<div class="row">
+  <div class="col-lg-5">
+    <div class="card mb-3">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <span class="badge bg-{{ 'primary' if opening.side == 'white' else 'secondary' }}">
+            You play: {{ opening.side|capitalize }}
+          </span>
+          <span class="badge bg-info" id="progress-badge">Move 0 / {{ line.moves|length }}</span>
+        </div>
+        <div id="status-message" class="alert alert-info mb-0">
+          Click <strong>"Start Training"</strong> to begin!
+        </div>
+      </div>
+    </div>
+
+    <div id="board"></div>
+
+    <div class="card mt-3">
+      <div class="card-header">
+        <strong>Current Move</strong>
+      </div>
+      <div class="card-body">
+        <div id="move-hint" class="text-muted">Waiting to start...</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-7">
+    <div class="card">
+      <div class="card-header">
+        <strong>Opening Line - {{ line.name }}</strong>
+      </div>
+      <div class="card-body">
+        <p>{{ opening.description }}</p>
+        <div class="table-responsive" style="max-height: 500px; overflow-y: auto;">
+          <table class="table table-sm table-striped">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Move</th>
+                <th>Comment</th>
+              </tr>
+            </thead>
+            <tbody id="moves-table">
+              {% for move in line.moves %}
+              <tr id="move-row-{{ loop.index0 }}" class="move-row">
+                <td>{{ loop.index }}</td>
+                <td><code>{{ move.san }}</code></td>
+                <td class="small text-muted">{{ move.comment }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+
+<script>
+  const openingId = "{{ opening_id }}";
+  const playerSide = "{{ opening.side }}";
+  const totalMoves = {{ line.moves|length }};
+  const openingMoves = {{ line.moves|tojson }};
+  
+  let game = new Chess();
+  let board = null;
+  let currentMoveIndex = 0;
+  let isPlayerTurn = (playerSide === 'white');
+  let trainingStarted = false;
+
+  const statusMessage = document.getElementById('status-message');
+  const moveHint = document.getElementById('move-hint');
+  const progressBadge = document.getElementById('progress-badge');
+
+  function updateProgress() {
+    progressBadge.textContent = `Move ${currentMoveIndex} / ${totalMoves}`;
+  }
+
+  function highlightCurrentMove() {
+    document.querySelectorAll('.move-row').forEach(row => {
+      row.classList.remove('table-active', 'table-success');
+    });
+    
+    if (currentMoveIndex < totalMoves) {
+      const row = document.getElementById(`move-row-${currentMoveIndex}`);
+      if (row) row.classList.add('table-active');
+    }
+    
+    // Highlight completed moves
+    for (let i = 0; i < currentMoveIndex; i++) {
+      const row = document.getElementById(`move-row-${i}`);
+      if (row) row.classList.add('table-success');
+    }
+  }
+
+  function setStatus(message, type = 'info') {
+    statusMessage.className = `alert alert-${type} mb-0`;
+    statusMessage.innerHTML = message;
+  }
+
+  function setHint(text) {
+    moveHint.innerHTML = text;
+  }
+
+  async function postJSON(url, data) {
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data || {})
+    });
+    return await r.json();
+  }
+
+  async function makeComputerMove() {
+    if (currentMoveIndex >= totalMoves) {
+      setStatus('🎉 Congratulations! You\'ve completed this opening!', 'success');
+      return;
+    }
+
+    const move = openingMoves[currentMoveIndex];
+    
+    try {
+      const result = game.move(move.san);
+      if (result) {
+        board.position(game.fen());
+        
+        setHint(`Computer played: <code>${move.san}</code> - ${move.comment}`);
+        
+        currentMoveIndex++;
+        updateProgress();
+        highlightCurrentMove();
+        
+        if (currentMoveIndex >= totalMoves) {
+          setStatus('🎉 Congratulations! You\'ve completed this opening!', 'success');
+        } else {
+          isPlayerTurn = true;
+          const nextMove = openingMoves[currentMoveIndex];
+          setStatus(`Your turn! Play: <strong>${nextMove.san}</strong>`, 'warning');
+        }
+      }
+    } catch (e) {
+      console.error('Error making computer move:', e);
+    }
+  }
+
+  async function checkPlayerMove(move) {
+    const response = await postJSON(`/api/openings/${openingId}/check`, {
+      move_san: move.san,
+      move_index: currentMoveIndex
+    });
+
+    if (response.correct) {
+      const moveData = openingMoves[currentMoveIndex];
+      setStatus(`✓ Correct! ${moveData.comment}`, 'success');
+      setHint(`You played: <code>${move.san}</code> - ${moveData.comment}`);
+      
+      currentMoveIndex++;
+      updateProgress();
+      highlightCurrentMove();
+      
+      if (currentMoveIndex >= totalMoves) {
+        setStatus('🎉 Perfect! You\'ve completed this opening!', 'success');
+      } else {
+        isPlayerTurn = false;
+        // Computer's turn
+        setTimeout(() => makeComputerMove(), 800);
+      }
+    } else {
+      setStatus(`✗ ${response.message}`, 'danger');
+      game.undo();
+      board.position(game.fen());
+    }
+  }
+
+  function onDrop(source, target) {
+    if (!trainingStarted) {
+      setStatus('Click "Start Training" first!', 'warning');
+      return 'snapback';
+    }
+
+    if (!isPlayerTurn) {
+      setStatus('Wait for the computer to move!', 'warning');
+      return 'snapback';
+    }
+
+    const move = game.move({
+      from: source,
+      to: target,
+      promotion: 'q'
+    });
+
+    if (move === null) return 'snapback';
+
+    board.position(game.fen());
+    checkPlayerMove(move);
+  }
+
+  function onDragStart(source, piece) {
+    if (!trainingStarted) return false;
+    if (!isPlayerTurn) return false;
+    if (game.game_over()) return false;
+    
+    if ((playerSide === 'white' && piece.search(/^b/) !== -1) ||
+        (playerSide === 'black' && piece.search(/^w/) !== -1)) {
+      return false;
+    }
+  }
+
+  function startTraining() {
+    trainingStarted = true;
+    game.reset();
+    board.position(game.fen());
+    currentMoveIndex = 0;
+    updateProgress();
+    highlightCurrentMove();
+    
+    if (playerSide === 'white') {
+      isPlayerTurn = true;
+      const firstMove = openingMoves[0];
+      setStatus(`Your turn! Play: <strong>${firstMove.san}</strong>`, 'warning');
+      setHint('Make your first move!');
+    } else {
+      isPlayerTurn = false;
+      setStatus('Computer is moving...', 'info');
+      setHint('Waiting for computer...');
+      setTimeout(() => makeComputerMove(), 500);
+    }
+  }
+
+  function initBoard() {
+    board = Chessboard('board', {
+      position: 'start',
+      orientation: playerSide,
+      draggable: true,
+      pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png',
+      onDragStart: onDragStart,
+      onDrop: onDrop
+    });
+
+    setTimeout(() => board.resize(), 0);
+    $(window).on('resize', () => board && board.resize());
+  }
+
+  document.getElementById('restart-btn').addEventListener('click', startTraining);
+
+  document.addEventListener('DOMContentLoaded', function() {
+    initBoard();
+    
+    // Auto-start training
+    setTimeout(() => startTraining(), 500);
+  });
+</script>
+
+<style>
+  .move-row.table-active {
+    background-color: #fff3cd !important;
+    font-weight: bold;
+  }
+  .move-row.table-success {
+    background-color: #d1e7dd !important;
+  }
+</style>
+{% endblock %}
